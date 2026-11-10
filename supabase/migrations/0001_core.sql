@@ -38,7 +38,6 @@ create table public.events (
   hash text not null,
   unique (tenant_id, epoch, seq)
 );
-create index events_tenant_epoch_seq on public.events (tenant_id, epoch, seq);
 
 create table app_private.allowed_emails (
   tenant_id uuid not null references public.tenants(id) on delete cascade,
@@ -90,9 +89,10 @@ create table app_private.prn_doses (
   para_mg int
 );
 create index prn_doses_lookup on app_private.prn_doses (tenant_id, epoch, resident_id, sim_at);
+create index pin_attempts_lookup on app_private.pin_attempts (tenant_id, staff_name, at);
 
 -- Append-only ledger
-create or replace function app_private.block_mutation() returns trigger language plpgsql as $$
+create or replace function app_private.block_mutation() returns trigger language plpgsql set search_path = '' as $$
 begin
   raise exception 'events are append-only';
 end $$;
@@ -115,7 +115,7 @@ revoke all on public.tenants, public.memberships, public.events from anon, authe
 grant select on public.tenants, public.memberships, public.events to authenticated;
 
 -- Simulated demo clock shared by every device (scenario starts Tue 10 Nov 2026 15:42:10 UK time)
-create or replace function app_private.sim_now(t public.tenants) returns bigint language sql stable as $$
+create or replace function app_private.sim_now(t public.tenants) returns bigint language sql stable set search_path = '' as $$
   select 1794325330000::bigint + (extract(epoch from (now() - t.epoch_started_at)) * 1000)::bigint + t.clock_offset_ms;
 $$;
 
@@ -278,7 +278,7 @@ with t as (insert into public.tenants (name, active_staff) values ('Willow Lane 
         (values ('David S.', 'Senior Support Worker', '2580'), ('Amina Kamara', 'Support Worker', '1357'), ('Tomasz Nowak', 'Support Worker', '4826')) as s(n, r, pin) returning tenant_id)
 , r as (insert into app_private.prn_rules (tenant_id, med_id, resident_id, min_interval_h, max_doses_24h, unit_max, para_mg, weight_kg)
         select id, x.med, x.res, 4, x.maxd, x.umax, x.para, x.w from t,
-        (values ('a5', 'arthur', 4, 2, 500, 71), ('l3', 'leo', 2, 1, null, 82), ('m7', 'margaret', 4, 2, 500, 47), ('m8', 'margaret', 4, 2, 500, 47)) as x(med, res, maxd, umax, para, w) returning tenant_id)
+        (values ('a5', 'arthur', 4, 2, 500, 71), ('l3', 'leo', 2, 1, null::int, 82), ('m7', 'margaret', 4, 2, 500, 47), ('m8', 'margaret', 4, 2, 500, 47)) as x(med, res, maxd, umax, para, w) returning tenant_id)
 insert into app_private.prn_doses (tenant_id, epoch, med_id, resident_id, sim_at, units, para_mg)
 select id, 0, d.med, d.res, d.at, d.u, d.para from t,
-(values ('m7', 'margaret', 1794291000000, 2, 1000), ('m7', 'margaret', 1794311880000, 2, 1000), ('a5', 'arthur', 1794296700000, 1, 500), ('l3', 'leo', 1794319500000, 1, null)) as d(med, res, at, u, para);
+(values ('m7', 'margaret', 1794291000000, 2, 1000), ('m7', 'margaret', 1794311880000, 2, 1000), ('a5', 'arthur', 1794296700000, 1, 500), ('l3', 'leo', 1794319500000, 1, null::int)) as d(med, res, at, u, para);
