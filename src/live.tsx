@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
 import CarePlanOSApp, { type Action, type LiveBridge } from './CarePlanOS';
+import ProviderConsole, { type Membership } from './console';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
@@ -59,7 +60,7 @@ function SignIn() {
   );
 }
 
-function LiveApp({ session }: { session: Session }) {
+function LiveApp({ session, onExit }: { session: Session; onExit?: () => void }) {
   const [ctx, setCtx] = useState<Ctx | null | undefined>(undefined);
   const [events, setEvents] = useState<Action[]>([]);
   const [connected, setConnected] = useState(false);
@@ -185,7 +186,42 @@ function LiveApp({ session }: { session: Session }) {
       </Shell>
     );
   }
-  return <CarePlanOSApp key={ctx.epoch} live={bridge as LiveBridge} />;
+  return (
+    <>
+      <CarePlanOSApp key={ctx.epoch} live={bridge as LiveBridge} />
+      {onExit && <button type="button" onClick={onExit} className="fixed bottom-4 left-4 z-[90] rounded-xl border border-white/20 bg-slate-900/90 px-3 py-2 text-[12px] font-semibold text-white shadow-2xl backdrop-blur">Back to provider console</button>}
+    </>
+  );
+}
+
+function Home({ session }: { session: Session }) {
+  const [info, setInfo] = useState<{ memberships: Membership[]; isAdmin: boolean; demo: boolean } | null>(null);
+  const [mode, setMode] = useState<'console' | 'demo'>('console');
+  const signOut = useCallback(() => { void supabase?.auth.signOut().then(() => window.location.replace('/')); }, []);
+  useEffect(() => {
+    if (!supabase) return;
+    let cancelled = false;
+    (async () => {
+      await Promise.allSettled([supabase.rpc('claim_membership'), supabase.rpc('claim_provider_memberships')]);
+      const [mem, prov, admin, ctx] = await Promise.all([
+        supabase.from('provider_members').select('provider_id, role, display_name, active').eq('user_id', session.user.id),
+        supabase.from('providers').select('id, name, live_data_enabled'),
+        supabase.rpc('platform_list_providers'),
+        supabase.rpc('get_my_context'),
+      ]);
+      const provs = new Map(((prov.data ?? []) as Array<{ id: string; name: string; live_data_enabled: boolean }>).map((p) => [p.id, p]));
+      const memberships = ((mem.data ?? []) as Array<{ provider_id: string; role: Membership['role']; display_name: string; active: boolean }>)
+        .filter((m) => m.active && provs.has(m.provider_id))
+        .map((m) => ({ provider_id: m.provider_id, role: m.role, display_name: m.display_name, provider_name: provs.get(m.provider_id)!.name, live_data_enabled: provs.get(m.provider_id)!.live_data_enabled }));
+      if (!cancelled) setInfo({ memberships, isAdmin: !admin.error, demo: !ctx.error && !!ctx.data });
+    })();
+    return () => { cancelled = true; };
+  }, [session.user.id]);
+  if (!supabase) return null;
+  if (!info) return <Shell><p className="text-[14px] text-slate-300">Loading your account…</p></Shell>;
+  const hasConsole = info.memberships.length > 0 || info.isAdmin;
+  if (!hasConsole || mode === 'demo') return <LiveApp session={session} onExit={hasConsole ? () => setMode('console') : undefined} />;
+  return <ProviderConsole supabase={supabase} memberships={info.memberships} isPlatformAdmin={info.isAdmin} email={session.user.email ?? ''} onOpenDemo={info.demo ? () => setMode('demo') : null} onSignOut={signOut} />;
 }
 
 export default function Root() {
@@ -199,5 +235,5 @@ export default function Root() {
   if (!supabase) return <CarePlanOSApp />;
   if (session === undefined) return <Shell><p className="text-[14px] text-slate-300">Starting…</p></Shell>;
   if (!session) return <SignIn />;
-  return <LiveApp session={session} />;
+  return <Home session={session} />;
 }

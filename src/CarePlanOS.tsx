@@ -29,7 +29,7 @@ type FrameworkId = 'saf2023' | 'cqc2026';
 type AttachmentKind = 'skin' | 'meal' | 'receipt' | 'hospital';
 
 interface Actor { name: string; role: string; kind: 'worker' | 'manager' | 'colleague' | 'system' }
-interface Tags {
+export interface Tags {
   fluidMl?: number; fluidEstimated?: boolean; mealPct?: number; mealLabel?: string; mood?: string;
   personalCare?: string[]; behaviour?: string[]; activity?: string[]; pain?: number; med?: boolean; choice?: boolean;
 }
@@ -413,7 +413,7 @@ const RISK_RE: Array<[RegExp, string]> = [
 ];
 const NUMBER_WORDS: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4 };
 
-interface Parsed { normalised: string; tags: Tags; cqc: Domain[]; risk: boolean; riskReasons: string[]; dialect: string[] }
+export interface Parsed { normalised: string; tags: Tags; cqc: Domain[]; risk: boolean; riskReasons: string[]; dialect: string[] }
 
 function normalise(raw: string): { text: string; dialect: string[] } {
   let text = raw.trim();
@@ -431,7 +431,7 @@ function normalise(raw: string): { text: string; dialect: string[] } {
   return { text, dialect: Array.from(dialect) };
 }
 
-function parseNote(raw: string): Parsed {
+export function parseNote(raw: string): Parsed {
   const { text, dialect } = normalise(raw);
   const lower = text.toLowerCase();
   const sentences = lower.split(/(?<=[.!?])\s+|\n+/).filter(Boolean);
